@@ -1,25 +1,61 @@
-use glium::backend::glutin::glutin::dpi::LogicalSize;
-use glium::backend::glutin::glutin::ControlFlow;
-use glium::glutin;
+extern crate piston_window;
+
+use piston_window::*;
 
 fn main() {
-    // 1. The **winit::EventsLoop** for handling events.
-    let mut events_loop = glium::glutin::EventsLoop::new();
-    // 2. Parameters for building the Window.
-    let wb = glium::glutin::WindowBuilder::new()
-        .with_dimensions(LogicalSize{width: 1024 as f64, height: 768 as f64 })
-        .with_title("Hello world");
-    // 3. Parameters for building the OpenGL context.
-    let cb = glium::glutin::ContextBuilder::new();
-    // 4. Build the Display with the given window and OpenGL context parameters and register the
-    //    window with the events_loop.
-    let display = glium::Display::new(wb, cb, &events_loop).unwrap();
-    events_loop.run_forever(|event| {
-        match event {
-            glutin::Event::WindowEvent {window_id: id, event: glutin::WindowEvent::CloseRequested} => {
-                ControlFlow::Break
-            },
-            _ => ControlFlow::Continue
+    let title = "Hello Piston! (press any key to enter inner loop)";
+    let mut window: PistonWindow = WindowSettings::new(title, [640, 480])
+        .exit_on_esc(true)
+        .build()
+        .unwrap_or_else(|e| panic!("Failed to build PistonWindow: {}", e));
+
+    window.set_lazy(true);
+    while let Some(e) = window.next() {
+        window.draw_2d(&e, |c, g, _| {
+            clear([0.5, 1.0, 0.5, 1.0], g);
+            rectangle(
+                [1.0, 0.0, 0.0, 1.0],
+                [50.0, 50.0, 100.0, 100.0],
+                c.transform,
+                g,
+            );
+        });
+
+        if e.press_args().is_some() {
+            InnerApp {
+                title: "Inner loop (press X to exit inner loop)",
+                exit_button: Button::Keyboard(Key::X),
+            }
+            .run(&mut window);
+            window.set_title(title.into());
         }
-    });
+    }
+}
+
+/// Stores application state of inner event loop.
+pub struct InnerApp {
+    pub title: &'static str,
+    pub exit_button: Button,
+}
+
+impl InnerApp {
+    pub fn run(&mut self, window: &mut PistonWindow) {
+        window.set_title(self.title.into());
+        while let Some(e) = window.next() {
+            window.draw_2d(&e, |c, g, _| {
+                clear([0.5, 0.5, 1.0, 1.0], g);
+                ellipse(
+                    [1.0, 0.0, 0.0, 1.0],
+                    [50.0, 50.0, 100.0, 100.0],
+                    c.transform,
+                    g,
+                );
+            });
+            if let Some(button) = e.press_args() {
+                if button == self.exit_button {
+                    break;
+                }
+            }
+        }
+    }
 }
