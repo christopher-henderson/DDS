@@ -26,15 +26,15 @@ static BACKGROUND_BYTES: &[u8] = include_bytes!("../assets/background.jpg");
 static MLB_LOGO_LARGE_BYTES: &[u8] = include_bytes!("../assets/mlb_logo_large.jpg");
 static MLB_LOGO_SMALL_BYTES: &[u8] = include_bytes!("../assets/mlb_logo_large.jpg");
 // https://www.ffonts.net/MLB-Block.font
-static FONT: &[u8] = include_bytes!("../MLBBLOCK.TTF");
+static FONT: &[u8] = include_bytes!("../OpenSans-Bold.ttf");
 static BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 static WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 static CENTER: [f64; 4] = [720.0, 415.0, 64.0, 36.0];
 static LEFT: [f64; 4] = [720.0 - 480.0 - 160.0, 415.0, 480.0, 270.0];
 static RIGHT: [f64; 4] = [720.0 + 480.0 + 160.0, 415.0, 480.0, 270.0];
 
-static LARGE: [f64; 2] = [209.0, 118.0];
-static SMALL: [f64; 2] = [135.0, 77.0];
+static LARGE: [f64; 2] = [480.0, 270.0];
+static SMALL: [f64; 2] = [320.0, 180.0];
 
 lazy_static! {
     static ref BACKGROUND: RgbaImage =
@@ -64,14 +64,14 @@ async fn main() {
         factory: window.factory.clone(),
         encoder: window.factory.create_command_buffer().into(),
     };
-    let fullscreen = graphics::image::Image::new().rect(square(0.0, 0.0, 1920.0));
+    let fullscreen = graphics::image::Image::new().rect([0.0, 0.0, 1920.0, 1080.0]);
     let mut large_snippets = vec![];
     for i in 0..15 {
-        large_snippets.push(graphics::image::Image::new().rect(square(0.0, 0.0, LARGE[0])));
+        large_snippets.push(graphics::image::Image::new().rect([0.0, 0.0, LARGE[0], LARGE[1]]));
     }
     let mut small_snippets = vec![];
     for i in 0..15 {
-        small_snippets.push(graphics::image::Image::new().rect(square(0.0, 0.0, SMALL[0])));
+        small_snippets.push(graphics::image::Image::new().rect([0.0, 0.0, SMALL[0], SMALL[1]]));
     }
     let small: piston_window::G2dTexture = piston_window::Texture::from_image(
         &mut piston_window::TextureContext {
@@ -100,17 +100,26 @@ async fn main() {
         &piston_window::TextureSettings::new(),
     )
     .unwrap();
-    let mut ctx =  piston_window::TextureContext {
-                                factory: window.factory.clone(),
-                                encoder: window.factory.create_command_buffer().into()
-                            };
+    let mut ctx = piston_window::TextureContext {
+        factory: window.factory.clone(),
+        encoder: window.factory.create_command_buffer().into(),
+    };
+    let mut glyphs = Glyphs::from_bytes(
+        FONT,
+        piston_window::TextureContext {
+            factory: window.factory.clone(),
+            encoder: window.factory.create_command_buffer().into(),
+        },
+        piston_window::TextureSettings::new(),
+    )
+    .unwrap();
     let mut current = 0;
     while let Some(e) = window.next() {
         match e.release_args() {
             Some(piston_window::Button::Keyboard(piston_window::Key::Left)) if current > 0 => {
                 current -= 1
             }
-            Some(piston_window::Button::Keyboard(piston_window::Key::Right)) if current < 15 => {
+            Some(piston_window::Button::Keyboard(piston_window::Key::Right)) if current < 14 => {
                 current += 1
             }
             _ => (),
@@ -118,8 +127,10 @@ async fn main() {
         window.draw_2d(&e, |c, g, device| {
             piston_window::clear([0.0, 0.0, 0.0, 0.0], g);
             fullscreen.draw(&background, &graphics::DrawState::default(), c.transform, g);
-            let (left, right) = if current < 11 { (0, 12) } else { (11, 15) };
-            let mut left_offset = 25.0;
+            let page = current / 5;
+            let left = page * 5;
+            let right = left + 5;
+            let mut left_offset = 27.5;
             let mut right_edge = left_offset + SMALL[0];
             for i in left..right {
                 if i == current {
@@ -135,6 +146,25 @@ async fn main() {
                         c.transform.trans(left_offset, 540.0),
                         g,
                     );
+                    piston_window::text(
+                        WHITE,
+                        16,
+                        &games.get(i).unwrap().headline,
+                        &mut glyphs,
+                        c.transform.trans(left_offset + 40.0, 500.0),
+                        g,
+                    )
+                    .unwrap();
+                    piston_window::text(
+                        WHITE,
+                        16,
+                        &games.get(i).unwrap().subhead,
+                        &mut glyphs,
+                        c.transform.trans(left_offset, 855.0),
+                        g,
+                    )
+                    .unwrap();
+                    glyphs.factory.encoder.flush(device);
                 } else {
                     right_edge = left_offset + SMALL[0];
                     small_snippets.get(i).unwrap().draw(
@@ -149,7 +179,7 @@ async fn main() {
                         g,
                     );
                 }
-                left_offset = right_edge + 25.0;
+                left_offset = right_edge + 27.5;
             }
         });
     }
@@ -340,9 +370,9 @@ struct Photos {
 
 #[derive(Deserialize, Debug)]
 struct Cuts {
-    #[serde(alias = "209x118")]
+    #[serde(alias = "480x270")]
     pub large: Photo,
-    #[serde(alias = "135x77")]
+    #[serde(alias = "320x180")]
     pub small: Photo,
 }
 
@@ -351,6 +381,27 @@ struct Photo {
     pub width: u32,
     pub height: u32,
     pub src: String,
+}
+
+trait Wrap {
+    fn wrap(&self) -> String;
+}
+
+impl Wrap for String {
+    fn wrap(&self) -> String {
+        let mut wrapped = String::new();
+        let mut length = 0;
+        for byte in self.as_bytes() {
+            // Avoid chopping text off in the middle of a word.
+            if length > 5 && byte.is_ascii_whitespace() {
+                wrapped.push('\n');
+                length = 0;
+            }
+            wrapped.push(*byte as char);
+            length += 1;
+        }
+        wrapped
+    }
 }
 
 #[cfg(test)]
