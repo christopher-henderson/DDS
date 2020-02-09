@@ -1,20 +1,26 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate graphics;
+extern crate hyper;
 extern crate opengles_graphics;
 extern crate piston_window;
-extern crate hyper;
 
 use graphics::rectangle::square;
-use image::{ImageFormat, GenericImageView, RgbaImage};
-use piston_window::{EventLoop, Glyphs, Transformed, GenericEvent, ReleaseEvent, Texture, PistonWindow};
+use image::{GenericImageView, ImageFormat, RgbaImage};
+use piston_window::{
+    EventLoop, GenericEvent, Glyphs, PistonWindow, ReleaseEvent, Texture, Transformed,
+};
 
 use crate::hyper::body::HttpBody;
 
-use tokio::io::AsyncRead;
 use std::process::exit;
+use tokio::io::AsyncRead;
 
 use serde::Deserialize;
+use std::collections::hash_set::SymmetricDifference;
+use std::ops::Deref;
+use std::sync::mpsc::channel;
+use std::sync::{Arc, RwLock};
 
 static BACKGROUND_BYTES: &[u8] = include_bytes!("../assets/background.jpg");
 static MLB_LOGO_LARGE_BYTES: &[u8] = include_bytes!("../assets/mlb_logo_large.jpg");
@@ -30,15 +36,25 @@ static RIGHT: [f64; 4] = [720.0 + 480.0 + 160.0, 415.0, 480.0, 270.0];
 static LARGE: [f64; 2] = [209.0, 118.0];
 static SMALL: [f64; 2] = [135.0, 77.0];
 
-lazy_static!(
-    static ref BACKGROUND: RgbaImage = image::load_from_memory_with_format(BACKGROUND_BYTES, ImageFormat::JPEG).unwrap().into_rgba();
-    static ref MLB_LOGO_LARGE: RgbaImage = image::load_from_memory_with_format(MLB_LOGO_LARGE_BYTES, ImageFormat::JPEG).unwrap().into_rgba();
-    static ref MLB_LOGO_SMALL: RgbaImage = image::load_from_memory_with_format(MLB_LOGO_SMALL_BYTES, ImageFormat::JPEG).unwrap().into_rgba();
-);
+lazy_static! {
+    static ref BACKGROUND: RgbaImage =
+        image::load_from_memory_with_format(BACKGROUND_BYTES, ImageFormat::JPEG)
+            .unwrap()
+            .into_rgba();
+    static ref MLB_LOGO_LARGE: RgbaImage =
+        image::load_from_memory_with_format(MLB_LOGO_LARGE_BYTES, ImageFormat::JPEG)
+            .unwrap()
+            .into_rgba();
+    static ref MLB_LOGO_SMALL: RgbaImage =
+        image::load_from_memory_with_format(MLB_LOGO_SMALL_BYTES, ImageFormat::JPEG)
+            .unwrap()
+            .into_rgba();
+}
 
 #[tokio::main]
 async fn main() {
     let title = "Disney Streaming Services";
+    let games = from(get().await).await;
     let mut window: piston_window::PistonWindow =
         piston_window::WindowSettings::new(title, [1920, 1080])
             .exit_on_esc(true)
@@ -51,40 +67,89 @@ async fn main() {
     let fullscreen = graphics::image::Image::new().rect(square(0.0, 0.0, 1920.0));
     let mut large_snippets = vec![];
     for i in 0..15 {
-        large_snippets.push(graphics::image::Image::new().rect(square(0.0,0.0, LARGE[0])));
+        large_snippets.push(graphics::image::Image::new().rect(square(0.0, 0.0, LARGE[0])));
     }
     let mut small_snippets = vec![];
     for i in 0..15 {
-        small_snippets.push(graphics::image::Image::new().rect(square(0.0,0.0, SMALL[0])));
+        small_snippets.push(graphics::image::Image::new().rect(square(0.0, 0.0, SMALL[0])));
     }
     let small: piston_window::G2dTexture = piston_window::Texture::from_image(
         &mut piston_window::TextureContext {
-        factory: window.factory.clone(),
-        encoder: window.factory.create_command_buffer().into(),
+            factory: window.factory.clone(),
+            encoder: window.factory.create_command_buffer().into(),
         },
         &(*MLB_LOGO_SMALL),
         &piston_window::TextureSettings::new(),
-    ).unwrap();
+    )
+    .unwrap();
+    let large: piston_window::G2dTexture = piston_window::Texture::from_image(
+        &mut piston_window::TextureContext {
+            factory: window.factory.clone(),
+            encoder: window.factory.create_command_buffer().into(),
+        },
+        &(*MLB_LOGO_LARGE),
+        &piston_window::TextureSettings::new(),
+    )
+    .unwrap();
+    let background: piston_window::G2dTexture = piston_window::Texture::from_image(
+        &mut piston_window::TextureContext {
+            factory: window.factory.clone(),
+            encoder: window.factory.create_command_buffer().into(),
+        },
+        &(*BACKGROUND),
+        &piston_window::TextureSettings::new(),
+    )
+    .unwrap();
+    let mut ctx =  piston_window::TextureContext {
+                                factory: window.factory.clone(),
+                                encoder: window.factory.create_command_buffer().into()
+                            };
     let mut current = 0;
     while let Some(e) = window.next() {
         match e.release_args() {
-            Some(piston_window::Button::Keyboard(piston_window::Key::Left)) if current > 0 => current -= 1,
-            Some(piston_window::Button::Keyboard(piston_window::Key::Right)) if current < 15 => current += 1,
-            _ => ()
+            Some(piston_window::Button::Keyboard(piston_window::Key::Left)) if current > 0 => {
+                current -= 1
+            }
+            Some(piston_window::Button::Keyboard(piston_window::Key::Right)) if current < 15 => {
+                current += 1
+            }
+            _ => (),
         };
         window.draw_2d(&e, |c, g, device| {
             piston_window::clear([0.0, 0.0, 0.0, 0.0], g);
-            let mut left_offset = 50.0;
+            fullscreen.draw(&background, &graphics::DrawState::default(), c.transform, g);
+            let (left, right) = if current < 11 { (0, 12) } else { (11, 15) };
+            let mut left_offset = 25.0;
             let mut right_edge = left_offset + SMALL[0];
-            for i in 0..15 {
+            for i in left..right {
                 if i == current {
                     right_edge = left_offset + LARGE[0];
-                    large_snippets.get(i).unwrap().draw(&small,&graphics::DrawState::default(), c.transform.trans(left_offset, 540.0), g);
+                    large_snippets.get(i).unwrap().draw(
+                        &piston_window::Texture::from_image(
+                            &mut ctx,
+                            &games.get(i).unwrap().large.photo,
+                            &piston_window::TextureSettings::new(),
+                        )
+                        .unwrap(),
+                        &graphics::DrawState::default(),
+                        c.transform.trans(left_offset, 540.0),
+                        g,
+                    );
                 } else {
                     right_edge = left_offset + SMALL[0];
-                    small_snippets.get(i).unwrap().draw(&small,&graphics::DrawState::default(), c.transform.trans(left_offset, 578.5), g);
+                    small_snippets.get(i).unwrap().draw(
+                        &piston_window::Texture::from_image(
+                            &mut ctx,
+                            &games.get(i).unwrap().small.photo,
+                            &piston_window::TextureSettings::new(),
+                        )
+                        .unwrap(),
+                        &graphics::DrawState::default(),
+                        c.transform.trans(left_offset, 578.5),
+                        g,
+                    );
                 }
-                left_offset = right_edge + 50.0;
+                left_offset = right_edge + 25.0;
             }
         });
     }
@@ -92,7 +157,6 @@ async fn main() {
 
 struct Image {
     inner: RgbaImage,
-
 }
 
 //#[tokio::main]
@@ -158,67 +222,103 @@ struct Image {
 //    }
 //}
 
-
-async fn get() -> serde_json::Value {
+async fn get() -> Schedule {
     let mut resp = hyper::Client::default().get("http://statsapi.mlb.com/api/v1/schedule?hydrate=game(content(editorial(recap))),decisions&date=2018-06-10&sportId=1".parse().unwrap()).await.unwrap();
     let buf = hyper::body::to_bytes(resp).await.unwrap();
     serde_json::from_slice(&buf).unwrap()
 }
 
 struct ResolvedSchedule {
-    pub games: Vec<ResolvedGame>
+    pub games: Vec<ResolvedGame>,
+}
+
+async fn from(schedule: Schedule) -> Vec<ResolvedGame> {
+    let mut games = vec![];
+    for game in schedule.dates[0].games.iter() {
+        games.push(ResolvedGame {
+            headline: game.content.editorial.recap.home.headline.clone(),
+            subhead: game.content.editorial.recap.home.subhead.clone(),
+            large: ResolvedPhoto::new(
+                game.content
+                    .editorial
+                    .recap
+                    .home
+                    .photo
+                    .cuts
+                    .large
+                    .src
+                    .clone(),
+            )
+            .await,
+            small: ResolvedPhoto::new(
+                game.content
+                    .editorial
+                    .recap
+                    .home
+                    .photo
+                    .cuts
+                    .small
+                    .src
+                    .clone(),
+            )
+            .await,
+        });
+    }
+    games
 }
 
 struct ResolvedGame {
     pub headline: String,
     pub subhead: String,
-    large: Option<piston_window::G2dTexture>,
-    small: Option<piston_window::G2dTexture>
+    large: ResolvedPhoto,
+    small: ResolvedPhoto,
 }
 
 struct ResolvedPhoto {
-    pub src: url::Url,
-    photo: Option<piston_window::G2dTexture>
+    photo: RgbaImage,
 }
 
 impl ResolvedPhoto {
-//    pub async fn get(&mut self, window: &PistonWindow) -> &piston_window::G2dTexture {
-//        match &self.photo {
-//            Some(texture) => texture,
-//            None => self.resolve(window).await
-//        }
-//    }
-//
-//    async fn resolve(&mut self, window: &PistonWindow) {
-//
-//    }
+    pub async fn new(src: String) -> ResolvedPhoto {
+        let https = hyper_tls::HttpsConnector::new();
+        let mut resp = hyper::Client::builder()
+            .build::<_, hyper::Body>(https)
+            .get(src.parse().unwrap())
+            .await
+            .unwrap();
+        let buf = hyper::body::to_bytes(resp).await.unwrap();
+        let img = image::load_from_memory_with_format(&buf, ImageFormat::JPEG)
+            .unwrap()
+            .into_rgba();
+        ResolvedPhoto { photo: img }
+    }
 }
 
 #[derive(Deserialize, Debug)]
 struct Schedule {
     pub copyright: String,
-    pub dates: Vec<Date>
+    pub dates: Vec<Date>,
 }
 
 #[derive(Deserialize, Debug)]
 struct Date {
     pub date: String,
-    pub games: Vec<Game>
+    pub games: Vec<Game>,
 }
 
 #[derive(Deserialize, Debug)]
 struct Game {
-    pub content: Content
+    pub content: Content,
 }
 
 #[derive(Deserialize, Debug)]
 struct Content {
-    pub editorial: Editorial
+    pub editorial: Editorial,
 }
 
 #[derive(Deserialize, Debug)]
 struct Editorial {
-    pub recap: Recap
+    pub recap: Recap,
 }
 
 #[derive(Deserialize, Debug)]
@@ -230,12 +330,12 @@ struct Recap {
 struct Home {
     pub headline: String,
     pub subhead: String,
-    pub photo: Photos
+    pub photo: Photos,
 }
 
 #[derive(Deserialize, Debug)]
 struct Photos {
-    pub cuts: Cuts
+    pub cuts: Cuts,
 }
 
 #[derive(Deserialize, Debug)]
@@ -243,7 +343,7 @@ struct Cuts {
     #[serde(alias = "209x118")]
     pub large: Photo,
     #[serde(alias = "135x77")]
-    pub small: Photo
+    pub small: Photo,
 }
 
 #[derive(Deserialize, Debug)]
@@ -262,12 +362,11 @@ mod tests {
     #[test]
     fn asdsdfd() {
         let schedule: Schedule = serde_json::from_slice(TEST_DATE).unwrap();
-//        for game in schedule.dates.get(0).unwrap().games.iter() {
-//            match game.content.headline {
-//                Some(_) => (),
-//                None => println!("{:?}", game)
-//            }
-//        }
+        //        for game in schedule.dates.get(0).unwrap().games.iter() {
+        //            match game.content.headline {
+        //                Some(_) => (),
+        //                None => println!("{:?}", game)
+        //            }
+        //        }
     }
 }
-
