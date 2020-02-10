@@ -5,8 +5,7 @@ extern crate hyper;
 extern crate opengles_graphics;
 extern crate piston_window;
 
-use graphics::rectangle::square;
-use image::{GenericImageView, ImageFormat, RgbaImage};
+use image::{ImageFormat, RgbaImage};
 use piston_window::{
     EventLoop, GenericEvent, Glyphs, PistonWindow, ReleaseEvent, Texture, Transformed,
 };
@@ -21,20 +20,21 @@ use std::collections::hash_set::SymmetricDifference;
 use std::ops::Deref;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, RwLock};
+use std::marker::PhantomData;
+use std::time::Duration;
 
 static BACKGROUND_BYTES: &[u8] = include_bytes!("../assets/background.jpg");
 static MLB_LOGO_LARGE_BYTES: &[u8] = include_bytes!("../assets/mlb_logo_large.jpg");
 static MLB_LOGO_SMALL_BYTES: &[u8] = include_bytes!("../assets/mlb_logo_large.jpg");
+static CANARY_BYTES: &[u8] = include_bytes!("../assets/canary.jpg");
 // https://www.ffonts.net/MLB-Block.font
 static FONT: &[u8] = include_bytes!("../OpenSans-Bold.ttf");
 static BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 static WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-static CENTER: [f64; 4] = [720.0, 415.0, 64.0, 36.0];
-static LEFT: [f64; 4] = [720.0 - 480.0 - 160.0, 415.0, 480.0, 270.0];
-static RIGHT: [f64; 4] = [720.0 + 480.0 + 160.0, 415.0, 480.0, 270.0];
-
 static LARGE: [f64; 2] = [480.0, 270.0];
 static SMALL: [f64; 2] = [320.0, 180.0];
+
+use piston_window::Window;
 
 lazy_static! {
     static ref BACKGROUND: RgbaImage =
@@ -54,7 +54,7 @@ lazy_static! {
 #[tokio::main]
 async fn main() {
     let title = "Disney Streaming Services";
-    let games = from(get().await).await;
+    let mut games = from(get().await);
     let mut window: piston_window::PistonWindow =
         piston_window::WindowSettings::new(title, [1920, 1080])
             .exit_on_esc(true)
@@ -114,6 +114,7 @@ async fn main() {
     )
     .unwrap();
     let mut current = 0;
+    window.set_max_fps(10);
     while let Some(e) = window.next() {
         match e.release_args() {
             Some(piston_window::Button::Keyboard(piston_window::Key::Left)) if current > 0 => {
@@ -125,7 +126,7 @@ async fn main() {
             _ => (),
         };
         window.draw_2d(&e, |c, g, device| {
-            piston_window::clear([0.0, 0.0, 0.0, 0.0], g);
+            piston_window::clear(BLACK, g);
             fullscreen.draw(&background, &graphics::DrawState::default(), c.transform, g);
             let page = current / 5;
             let left = page * 5;
@@ -138,7 +139,7 @@ async fn main() {
                     large_snippets.get(i).unwrap().draw(
                         &piston_window::Texture::from_image(
                             &mut ctx,
-                            &games.get(i).unwrap().large.photo,
+                            &games.get_mut(i).unwrap().large.get(),
                             &piston_window::TextureSettings::new(),
                         )
                         .unwrap(),
@@ -170,7 +171,7 @@ async fn main() {
                     small_snippets.get(i).unwrap().draw(
                         &piston_window::Texture::from_image(
                             &mut ctx,
-                            &games.get(i).unwrap().small.photo,
+                            &games.get_mut(i).unwrap().small.get(),
                             &piston_window::TextureSettings::new(),
                         )
                         .unwrap(),
@@ -189,71 +190,8 @@ struct Image {
     inner: RgbaImage,
 }
 
-//#[tokio::main]
-//async fn main() {
-////    let data = get().await;
-////    println!("{}", data);
-////    exit(1);
-//    let title = "Disney Streaming Services";
-//    let mut window: piston_window::PistonWindow =
-//        piston_window::WindowSettings::new(title, [1920, 1080])
-//            .exit_on_esc(true)
-//            .build()
-//            .unwrap_or_else(|e| panic!("Failed to build PistonWindow: {}", e));
-//    //    window.set_lazy(true);
-//    let mut tc = piston_window::TextureContext {
-//        factory: window.factory.clone(),
-//        encoder: window.factory.create_command_buffer().into(),
-//    };
-//
-//    let jpg = image::load_from_memory_with_format(BACKGROUND_BYTES, ImageFormat::JPEG).unwrap();
-//    let r: RgbaImage = jpg.into_rgba();
-//    let imaget = graphics::image::Image::new().rect(square(0.0, 0.0, jpg.width() as f64));
-//    let t: piston_window::G2dTexture = piston_window::Texture::from_image(
-//        &mut tc,
-//        &r,
-//        &piston_window::TextureSettings::new(),
-//    )
-//    .unwrap();
-//    let mut glyphs = Glyphs::from_bytes(FONT,tc, piston_window::TextureSettings::new()).unwrap();
-//    let mut changed = true;
-//    let data = vec!["a", "b", "c", "d"];
-//    let mut cursor = 1;
-//    let mut left = 0;
-//    let mut center = 1;
-//    let mut right = 2;
-//    while let Some(e) = window.next() {
-//        if let Some(piston_window::Button::Keyboard(piston_window::Key::Left)) = e.release_args() {
-//            if cursor != 1 {
-//                left = left - 1;
-//                center = center - 1;
-//                right = right - 1;
-//                cursor -= 1;
-//            }
-//        }
-//        if let Some(piston_window::Button::Keyboard(piston_window::Key::Right)) = e.release_args() {
-//            if cursor != 2 {
-//                left = left + 1;
-//                center = center + 1;
-//                right = right + 1;
-//                cursor += 1;
-//            }
-//        }
-//        window.draw_2d(&e, |c, g, device| {
-//            imaget.draw(&t, &graphics::DrawState::default(), c.transform, g);
-//            piston_window::rectangle(BLACK, CENTER, c.transform, g);
-//            piston_window::rectangle(BLACK, LEFT, c.transform, g);
-//            piston_window::rectangle(BLACK, RIGHT, c.transform, g);
-//            piston_window::text(WHITE,32,data[center as usize], &mut glyphs, c.transform.trans(CENTER[0], 395.0), g).unwrap();
-//            piston_window::text(WHITE,32,data[left as usize], &mut glyphs, c.transform.trans(LEFT[0], 395.0), g).unwrap();
-//            piston_window::text(WHITE,32,data[right as usize], &mut glyphs, c.transform.trans(RIGHT[0], 395.0), g).unwrap();
-//            glyphs.factory.encoder.flush(device);
-//        });
-//    }
-//}
-
 async fn get() -> Schedule {
-    let mut resp = hyper::Client::default().get("http://statsapi.mlb.com/api/v1/schedule?hydrate=game(content(editorial(recap))),decisions&date=2018-06-10&sportId=1".parse().unwrap()).await.unwrap();
+    let resp = hyper::Client::default().get("http://statsapi.mlb.com/api/v1/schedule?hydrate=game(content(editorial(recap))),decisions&date=2018-06-10&sportId=1".parse().unwrap()).await.unwrap();
     let buf = hyper::body::to_bytes(resp).await.unwrap();
     serde_json::from_slice(&buf).unwrap()
 }
@@ -262,7 +200,7 @@ struct ResolvedSchedule {
     pub games: Vec<ResolvedGame>,
 }
 
-async fn from(schedule: Schedule) -> Vec<ResolvedGame> {
+fn from(schedule: Schedule) -> Vec<ResolvedGame> {
     let mut games = vec![];
     for game in schedule.dates[0].games.iter() {
         games.push(ResolvedGame {
@@ -277,9 +215,8 @@ async fn from(schedule: Schedule) -> Vec<ResolvedGame> {
                     .cuts
                     .large
                     .src
-                    .clone(),
-            )
-            .await,
+                    .clone(), &*MLB_LOGO_LARGE
+            ),
             small: ResolvedPhoto::new(
                 game.content
                     .editorial
@@ -289,9 +226,8 @@ async fn from(schedule: Schedule) -> Vec<ResolvedGame> {
                     .cuts
                     .small
                     .src
-                    .clone(),
-            )
-            .await,
+                    .clone(), &*MLB_LOGO_SMALL
+            ),
         });
     }
     games
@@ -306,21 +242,47 @@ struct ResolvedGame {
 
 struct ResolvedPhoto {
     photo: RgbaImage,
+    default: &'static RgbaImage,
+    channel: crossbeam_channel::Receiver<RgbaImage>
 }
 
 impl ResolvedPhoto {
-    pub async fn new(src: String) -> ResolvedPhoto {
-        let https = hyper_tls::HttpsConnector::new();
-        let mut resp = hyper::Client::builder()
-            .build::<_, hyper::Body>(https)
-            .get(src.parse().unwrap())
-            .await
-            .unwrap();
-        let buf = hyper::body::to_bytes(resp).await.unwrap();
-        let img = image::load_from_memory_with_format(&buf, ImageFormat::JPEG)
-            .unwrap()
-            .into_rgba();
-        ResolvedPhoto { photo: img }
+    pub fn new(src: String, default: &'static RgbaImage) -> ResolvedPhoto {
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        tokio::task::spawn(async move {
+            let https = hyper_tls::HttpsConnector::new();
+            let resp = hyper::Client::builder()
+                .build::<_, hyper::Body>(https)
+                .get(src.parse().unwrap())
+                .await
+                .unwrap();
+            let buf = hyper::body::to_bytes(resp).await.unwrap();
+            let img = image::load_from_memory_with_format(&buf, ImageFormat::JPEG)
+                .unwrap()
+                .into_rgba();
+            tx.send(img).unwrap();
+        });
+        ResolvedPhoto { photo: image::load_from_memory_with_format(&*CANARY_BYTES, ImageFormat::JPEG)
+                .unwrap()
+                .into_rgba(), default, channel: rx }
+    }
+
+    pub fn get(&mut self) -> &RgbaImage {
+        if self.photo.len() > 4 {
+            return &self.photo;
+        }
+        match self.channel.try_recv() {
+            Ok(image) => {
+                self.photo = image;
+                &self.photo
+            }
+            Err(crossbeam_channel::TryRecvError::Empty) => {
+                self.default
+            },
+            Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                self.default
+            }
+        }
     }
 }
 
