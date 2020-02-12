@@ -160,3 +160,21 @@ impl std::fmt::Display for ErrorContext {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    static TEST_DATA: &[u8] = include_bytes!("test.json");
+
+    #[test]
+    fn smoke() {
+        let _: Schedule = serde_json::from_slice(TEST_DATA).unwrap();
+    }
+
+    #[test]
+    fn smoke_async() {
+        // This just smoke checks that our api call is working.
+        let _: Schedule = tokio::runtime::Runtime::new().unwrap().block_on(Schedule::try_from(DEFAULT)).unwrap();
+    }
+}
