@@ -1,6 +1,5 @@
 use serde::Deserialize;
 use std::fmt::Formatter;
-use std::path::Display;
 
 #[derive(Deserialize)]
 pub struct Schedule {
