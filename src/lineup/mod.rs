@@ -1,9 +1,8 @@
 use image::{RgbaImage, ImageFormat};
 use crate::api;
 
-static CANARY_BYTES: &[u8] = include_bytes!("../../assets/canary.jpg");
 static MLB_LOGO_LARGE_BYTES: &[u8] = include_bytes!("../../assets/mlb_logo_large.jpg");
-static MLB_LOGO_SMALL_BYTES: &[u8] = include_bytes!("../../assets/mlb_logo_large.jpg");
+static MLB_LOGO_SMALL_BYTES: &[u8] = include_bytes!("../../assets/mlb_logo_small.jpg");
 
 lazy_static! {
     static ref MLB_LOGO_LARGE: RgbaImage =
@@ -109,7 +108,7 @@ pub struct Game {
 }
 
 pub struct Photo {
-    photo: RgbaImage,
+    photo: Option<RgbaImage>,
     channel: crossbeam_channel::Receiver<RgbaImage>,
 }
 
@@ -130,21 +129,19 @@ impl Photo {
             tx.send(img).unwrap();
         });
         Photo {
-            photo: image::load_from_memory_with_format(&*CANARY_BYTES, ImageFormat::JPEG)
-                .unwrap()
-                .into_rgba(),
+            photo: None,
             channel: rx,
         }
     }
 
     pub fn get(&mut self) -> Option<&RgbaImage> {
-        if self.photo.len() > 4 {
-            return Some(&self.photo);
+        if  self.photo.is_some() {
+            return self.photo.as_ref();
         }
         match self.channel.try_recv() {
             Ok(image) => {
-                self.photo = image;
-                Some(&self.photo)
+                self.photo = Some(image);
+                self.photo.as_ref()
             }
             _ => None,
         }
